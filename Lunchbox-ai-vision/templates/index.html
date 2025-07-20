@@ -1,0 +1,89 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <title>AI 도시락 추천기</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="logo-container">
+    <img src="{{ url_for('static', filename='img/lunchbox.png') }}" alt="도시락 로고">
+  </div>
+  
+  <h2>{{ texts.upload_title }}</h2>
+  
+  <div class="upload-container">
+    <form method="POST" enctype="multipart/form-data" id="uploadForm">
+      <div class="file-input-section">
+        <div class="file-input-wrapper">
+          <input type="file" name="image" accept="image/*" required id="imageInput">
+          <div class="file-input-button" id="fileButton">
+            {{ texts.choose_file }}
+          </div>
+        </div>
+        <div id="fileName" style="margin-top: 10px; color: #666; font-size: 0.9rem;"></div>
+      </div>
+      
+      <div class="file-preview" id="preview">
+        <div class="empty">{{ texts.no_file_selected }}</div>
+      </div>
+      
+      <div class="submit-section">
+        <button type="submit" id="submitBtn" disabled>{{ texts.get_recommendation }}</button>
+      </div>
+    </form>
+  </div>
+
+  <script>
+    const imageInput = document.getElementById('imageInput');
+    const preview = document.getElementById('preview');
+    const fileName = document.getElementById('fileName');
+    const submitBtn = document.getElementById('submitBtn');
+    const fileButton = document.getElementById('fileButton');
+    
+    const texts = {
+      noFileSelected: '{{ texts.no_file_selected }}',
+      selectedFile: '{{ texts.selected_file }}',
+      chooseFile: '{{ texts.choose_file }}',
+      changeFile: '{{ texts.change_file }}',
+      analyzing: '{{ texts.analyzing }}'
+    };
+
+    imageInput.addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      
+      if (file) {
+        // 파일명 표시
+        fileName.textContent = `${texts.selectedFile} ${file.name}`;
+        
+        // 버튼 텍스트 변경
+        fileButton.textContent = texts.changeFile;
+        
+        // 제출 버튼 활성화
+        submitBtn.disabled = false;
+        
+        // 미리보기 표시
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          preview.innerHTML = `<img src="${e.target.result}" alt="미리보기">`;
+          preview.classList.remove('empty');
+        };
+        reader.readAsDataURL(file);
+      } else {
+        // 초기 상태로 되돌리기
+        fileName.textContent = '';
+        fileButton.textContent = texts.chooseFile;
+        submitBtn.disabled = true;
+        preview.innerHTML = `<div class="empty">${texts.noFileSelected}</div>`;
+        preview.classList.add('empty');
+      }
+    });
+
+    // 폼 제출 시 버튼 비활성화 및 즉시 피드백
+    document.getElementById('uploadForm').addEventListener('submit', function() {
+      submitBtn.disabled = true;
+      submitBtn.textContent = texts.analyzing;
+    });
+  </script>
+</body>
+</html>

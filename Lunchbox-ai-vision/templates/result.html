@@ -1,0 +1,302 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <title>AI 도시락 추천 결과</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="logo-container">
+    <img src="{{ url_for('static', filename='img/lunchbox.png') }}" alt="도시락 로고">
+  </div>
+  
+  <h2>{{ texts.ai_result_title }}</h2>
+  
+  <div class="result-container">
+    <div class="intro-section">
+      <h3>{{ texts.custom_menu }}</h3>
+      <p>{{ texts.custom_description }}</p>
+    </div>
+    
+    <div class="loading-section" id="loadingSection">
+      <div class="main-loading">
+        <div class="loading-spinner-large"></div>
+        <h3>{{ texts.ai_generating }}</h3>
+        <p>{{ texts.please_wait }}</p>
+      </div>
+    </div>
+    
+    <div class="menu-cards-container" id="menuContainer" style="display: none;">
+      <div class="result-text" style="display: none;">{{ result | safe }}</div>
+      <div id="menuCards"></div>
+    </div>
+    
+    <div class="action-section">
+      <a href="/" class="back-button">
+        {{ texts.new_recommendation }}
+      </a>
+    </div>
+  </div>
+
+  <script>
+    const loadingSection = document.getElementById('loadingSection');
+    const menuContainer = document.getElementById('menuContainer');
+    const menuCards = document.getElementById('menuCards');
+    
+    const texts = {
+      ingredients: '{{ texts.ingredients }}',
+      instructions: '{{ texts.instructions }}',
+      nutrition: '{{ texts.nutrition }}',
+      imageGenerating: '{{ texts.image_generating }}',
+      errorOccurred: '{{ texts.error_occurred }}',
+      tryAgain: '{{ texts.try_again }}',
+      retryButton: '{{ texts.retry_button }}'
+    };
+    
+    // URL에서 request_id 가져오기
+    const urlParams = new URLSearchParams(window.location.search);
+    const requestId = urlParams.get('id');
+    
+    if (!requestId) {
+      window.location.href = '/';
+    }
+    
+    // 페이지 로드 시 AI 추천 요청
+    window.addEventListener('load', function() {
+      fetch('/get_recommendation', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          request_id: requestId
+        })
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.error) {
+          throw new Error(data.error);
+        }
+        
+        // 로딩 섹션 숨기고 결과 표시
+        loadingSection.style.display = 'none';
+        menuContainer.style.display = 'block';
+        
+        // 결과 텍스트 업데이트
+        document.querySelector('.result-text').textContent = data.result;
+        
+        // 메뉴 카드 생성
+        displayMenuCards(data.result);
+        
+        // 이미지 생성 시작
+        generateMenuImages(data.result);
+      })
+      .catch(error => {
+        console.error('추천 생성 중 오류:', error);
+        loadingSection.innerHTML = `
+          <div class="error-message">
+            <h3>${texts.errorOccurred}</h3>
+            <p>${texts.tryAgain}</p>
+            <a href="/" class="back-button">${texts.retryButton}</a>
+          </div>
+        `;
+      });
+    });
+    
+    function displayMenuCards(resultText) {
+      // AI 응답을 파싱하여 개별 메뉴 카드로 표시
+      
+      // ** 메뉴명 ** 패턴으로 메뉴 분리
+      const menuPattern = /\*\*(.*?)\*\*/g;
+      const menuMatches = [...resultText.matchAll(menuPattern)];
+      
+      if (menuMatches.length === 0) {
+        // 패턴이 없으면 원본 텍스트 표시
+        menuCards.innerHTML = `
+          <div class="menu-card">
+            <div class="menu-card-content">
+              <div class="menu-section">
+                <pre>${resultText}</pre>
+              </div>
+            </div>
+          </div>
+        `;
+        return;
+      }
+      
+      const uniqueMenus = new Map(); // 중복 제거를 위한 Map
+      
+      menuMatches.forEach((match, index) => {
+        const menuName = match[1].trim();
+        const startIndex = match.index + match[0].length;
+        const nextIndex = index < menuMatches.length - 1 ? menuMatches[index + 1].index : resultText.length;
+        const content = resultText.substring(startIndex, nextIndex).trim();
+        
+        // 이미 존재하는 메뉴인지 확인
+        if (uniqueMenus.has(menuName)) {
+          // 기존 내용과 새 내용을 합침
+          const existingContent = uniqueMenus.get(menuName);
+          uniqueMenus.set(menuName, existingContent + '\n\n' + content);
+        } else {
+          uniqueMenus.set(menuName, content);
+        }
+      });
+      
+      // 유니크한 메뉴들로 카드 생성
+      let cardIndex = 0;
+      uniqueMenus.forEach((content, menuName) => {
+        // 다국어 대응 섹션 파싱
+        let ingredients = '';
+        let instructions = '';
+        let nutrition = '';
+        
+        // 한국어 및 영어 패턴 모두 지원
+        const ingredientPatterns = [
+          /재료:\s*(.*?)(?=\n(?:만드는 법:|영양정보:|Instructions:|Nutrition Info:)|$)/s,
+          /Ingredients:\s*(.*?)(?=\n(?:재료:|만드는 법:|영양정보:|Instructions:|Nutrition Info:)|$)/s
+        ];
+        
+        const instructionPatterns = [
+          /만드는 법:\s*(.*?)(?=\n(?:재료:|영양정보:|Ingredients:|Instructions:|Nutrition Info:)|$)/s,
+          /Instructions:\s*(.*?)(?=\n(?:재료:|만드는 법:|영양정보:|Ingredients:|Nutrition Info:)|$)/s
+        ];
+        
+        const nutritionPatterns = [
+          /영양정보:\s*(.*?)(?=\n(?:재료:|만드는 법:|Ingredients:|Instructions:|Nutrition Info:)|$)/s,
+          /Nutrition Info:\s*(.*?)(?=\n(?:재료:|만드는 법:|영양정보:|Ingredients:|Instructions:)|$)/s
+        ];
+        
+        // 패턴 매칭
+        for (let pattern of ingredientPatterns) {
+          const match = content.match(pattern);
+          if (match) { ingredients = match[1].trim(); break; }
+        }
+        
+        for (let pattern of instructionPatterns) {
+          const match = content.match(pattern);
+          if (match) { instructions = match[1].trim(); break; }
+        }
+        
+        for (let pattern of nutritionPatterns) {
+          const match = content.match(pattern);
+          if (match) { nutrition = match[1].trim(); break; }
+        }
+        
+        // 파싱되지 않은 나머지 내용
+        let remainingContent = content;
+        if (ingredients) remainingContent = remainingContent.replace(/재료:\s*.*?(?=\n(?:만드는 법:|영양정보:)|$)/s, '');
+        if (ingredients) remainingContent = remainingContent.replace(/Ingredients:\s*.*?(?=\n(?:Instructions:|Nutrition Info:)|$)/s, '');
+        if (instructions) remainingContent = remainingContent.replace(/만드는 법:\s*.*?(?=\n(?:재료:|영양정보:)|$)/s, '');
+        if (instructions) remainingContent = remainingContent.replace(/Instructions:\s*.*?(?=\n(?:Ingredients:|Nutrition Info:)|$)/s, '');
+        if (nutrition) remainingContent = remainingContent.replace(/영양정보:\s*.*?(?=\n(?:재료:|만드는 법:)|$)/s, '');
+        if (nutrition) remainingContent = remainingContent.replace(/Nutrition Info:\s*.*?(?=\n(?:Ingredients:|Instructions:)|$)/s, '');
+        remainingContent = remainingContent.trim();
+        
+        const card = document.createElement('div');
+        card.className = 'menu-card';
+        
+        // placeholder 이미지 HTML 생성
+        const imageHtml = `
+          <div class="menu-image">
+            <div class="image-placeholder" data-menu="${menuName}">
+              <div class="loading-spinner"></div>
+              <span>${texts.imageGenerating}</span>
+            </div>
+          </div>`;
+        
+        card.innerHTML = `
+          <div class="menu-card-header">
+            <span class="menu-number">${cardIndex + 1}</span>
+            <h4>${menuName}</h4>
+          </div>
+          ${imageHtml}
+          <div class="menu-card-content">
+            ${ingredients ? `
+              <div class="menu-section">
+                <h5>${texts.ingredients}</h5>
+                <p>${ingredients}</p>
+              </div>
+            ` : ''}
+            ${instructions ? `
+              <div class="menu-section">
+                <h5>${texts.instructions}</h5>
+                <p>${instructions}</p>
+              </div>
+            ` : ''}
+            ${nutrition ? `
+              <div class="menu-section">
+                <h5>${texts.nutrition}</h5>
+                <p>${nutrition}</p>
+              </div>
+            ` : ''}
+            ${remainingContent && !ingredients && !instructions && !nutrition ? `
+              <div class="menu-section">
+                <pre>${remainingContent}</pre>
+              </div>
+            ` : ''}
+          </div>
+        `;
+        menuCards.appendChild(card);
+        cardIndex++;
+      });
+      
+      // 만약 파싱이 제대로 안되면 원본 텍스트 표시
+      if (menuCards.children.length === 0) {
+        menuCards.innerHTML = `
+          <div class="menu-card">
+            <div class="menu-card-content">
+              <div class="menu-section">
+                <pre>${resultText}</pre>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+    }
+    
+    function generateMenuImages(resultText) {
+      // 이미지 비동기 생성 요청
+      fetch('/generate_images', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            menu_text: resultText,
+            request_id: requestId
+          })
+        })
+      .then(response => response.json())
+        .then(data => {
+          const menuImages = data.menu_images;
+          
+          // 각 placeholder를 실제 이미지로 교체
+          document.querySelectorAll('.image-placeholder').forEach(placeholder => {
+            const menuName = placeholder.getAttribute('data-menu');
+            if (menuImages[menuName]) {
+              const img = document.createElement('img');
+              img.src = menuImages[menuName];
+              img.alt = menuName;
+              img.onerror = function() { this.style.display = 'none'; };
+              img.onload = function() {
+                placeholder.parentNode.replaceChild(img, placeholder);
+              };
+            } else {
+              // 이미지 생성 실패 시 기본 이모지 표시
+              placeholder.innerHTML = '<div class="default-food-icon">🍱</div>';
+              placeholder.classList.add('failed');
+            }
+          });
+        })
+        .catch(error => {
+          console.error('이미지 생성 중 오류:', error);
+          // 오류 발생 시 모든 placeholder를 기본 아이콘으로 교체
+          document.querySelectorAll('.image-placeholder').forEach(placeholder => {
+            placeholder.innerHTML = '<div class="default-food-icon">🍱</div>';
+            placeholder.classList.add('failed');
+          });
+        });
+    }
+  </script>
+</body>
+</html>
